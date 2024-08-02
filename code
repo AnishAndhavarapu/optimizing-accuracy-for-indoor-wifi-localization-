@@ -1,0 +1,315 @@
+import os
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+import matplotlib.pyplot as plt
+%matplotlib inline
+import plotly.express as px
+from sklearn.ensemble import RandomForestClassifier as rfc, RandomForestRegressor as rfr
+from sklearn.metrics import confusion_matrix, f1_score, mean_squared_error
+import itertools
+from math import sqrt
+df=pd.read_csv('trainingData.csv')
+df.head()
+df.describe().iloc[0].unique()
+df.describe()
+df.info()
+df.columns.values
+missing_values_count = df.isnull().sum()
+missing_values_count
+df["OUTSIDE"].unique()
+df["BUILDINGID"].unique()
+df["SPACEID"].unique()
+df["PHONEID"].unique()
+import plotly.offline as pyo
+pyo.init_notebook_mode()
+px.scatter(df, x="LONGITUDE", y="LATITUDE")
+px.scatter(df, x="LONGITUDE", y="LATITUDE", color="USERID")
+corr_matrix = df.corr()
+px.imshow(corr_matrix)
+px.histogram(df.iloc[:, 520:529],nbins=20)
+def clean_data(df):
+    df.iloc[:, 0:520] = np.where(df.iloc[:, 0:520] <= 0, 
+                df.iloc[:, 0:520] + 105, 
+                df.iloc[:, 0:520] - 100)
+    
+    columns_removed = ['USERID', 'PHONEID','TIMESTAMP']
+    for col in columns_removed:
+        df.drop(col, axis=1, inplace=True)
+    
+    return df
+trainingData  = clean_data(df)
+def preprocess_data(df):
+    global X
+    global y
+    X = df.drop(['LONGITUDE', 'LATITUDE','OUTSIDE','BUILDINGID', 'SPACEID','RELATIVEPOSITION'], axis=1)
+    y = df[['BUILDINGID', 'OUTSIDE']]
+    
+    
+    y = pd.get_dummies(data=y, columns=['BUILDINGID', 'OUTSIDE'])
+    
+    return X, y
+X, y = preprocess_data(trainingData)
+def split_data(preprocess_data):
+    global X_train
+    global X_test
+    global y_train
+    global y_test
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, 
+                                                        y, 
+                                                        test_size = 0.2, 
+                                                        random_state = 42,
+                                                        shuffle=True)
+
+    print("Training set has {} samples.".format(X_train.shape[0]))
+    print("Testing set has {} samples.".format(X_test.shape[0]))
+    return X_train, X_test, y_train, y_test
+X_train, X_test, y_train, y_test = split_data(preprocess_data)
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA 
+from scipy.sparse import lil_matrix
+scaler = StandardScaler()
+scaler.fit(X_train)
+X_train = scaler.transform(X_train)
+X_test = scaler.transform(X_test)
+pca = PCA(.95)
+pca.fit(X_train)
+X_train_pca = pca.transform(X_train)
+X_test_pca = pca.transform(X_test)
+print("Number of PCA Components = {}.".format(pca.n_components_))
+print("Total Variance Explained by PCA Components = {}.".format(pca.explained_variance_ratio_.sum()))
+def pca_plot(pca):
+    num_components = len(pca.explained_variance_ratio_)
+    ind = np.arange(num_components)
+    vals = pca.explained_variance_ratio_
+ 
+    plt.figure(figsize=(10, 6))
+    ax = plt.subplot(111)
+    cumvals = np.cumsum(vals)
+    ax.bar(ind, vals)
+    ax.plot(ind, cumvals)
+    for i in range(num_components):
+        ax.annotate(r"%s%%" % ((str(vals[i]*100)[:4])), (ind[i]+0.2, vals[i]), va="bottom", ha="center", fontsize=12)
+ 
+    ax.xaxis.set_tick_params(width=0)
+    ax.yaxis.set_tick_params(width=2, length=12)
+ 
+    ax.set_xlabel("Principal Component")
+    ax.set_ylabel("Variance Explained (%)")
+    plt.title('Explained Variance Per Principal Component')
+
+pca_plot(pca)
+X_train_pca = lil_matrix(X_train_pca).toarray()
+y_train = lil_matrix(y_train).toarray()
+X_test_pca = lil_matrix(X_test_pca).toarray()
+y_test = lil_matrix(y_test).toarray()
+from skmultilearn.adapt import MLkNN
+MLKNN_classifier = MLkNN(k=1)
+MLKNN_classifier.fit(X_train_pca, y_train)
+predictions = MLKNN_classifier.predict(X_test_pca)
+accuracy = accuracy_score(y_test,predictions)
+type(accuracy)
+print("Accuracy = ",accuracy)
+data = pd.read_csv('trainingData.csv')
+data2 = data[:10]
+[i for i in data2.columns.values if 'WAP' not in i]
+data.replace(100, np.nan, inplace=True)
+data[['OUTSIDE','BUILDINGID', 'SPACEID','RELATIVEPOSITION','USERID','PHONEID']] = \
+data[['OUTSIDE','BUILDINGID', 'SPACEID','RELATIVEPOSITION','USERID','PHONEID']].astype(str)
+x_columns = [i for i in data.columns.values if 'WAP' in i]
+metadata_fields = [i for i in data.columns.values if 'WAP' not in i]
+data[metadata_fields].describe(include=['object'])
+print('data pre-drop ',data.shape)
+data.dropna(how='all', axis=1, inplace=True)
+data.dropna(how='all', axis=0, inplace=True)
+print('data post-drop ', data.shape)
+#Also update our list of input columns
+x_columns = [i for i in data.columns.values if 'WAP' in i]
+from IPython.display import display
+from sklearn.preprocessing import StandardScaler as ssc
+from sklearn.decomposition import PCA
+def plot_confusion_matrix(observed, predicted,
+                          normalize=False,
+                          title='Confusion matrix',
+                          cmap=plt.cm.Blues):
+    
+    cm = confusion_matrix(observed, predicted)
+    classes = list(observed.unique())
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+    else:
+        print('Confusion matrix, without normalization')
+        
+    print('F1 Score: %s'%f1_score(list(observed), list(predicted), average='micro'))
+
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, format(cm[i, j], fmt),
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    plt.tight_layout()
+    plt.show()
+class  DataPrep():
+    def _init_(self):
+        
+        self.x_columns = []
+        self.metadata_columns = []
+        self.pca_columns = []
+        self.scaler = ssc()
+        self.pca = PCA()
+        self.pre_pca_columns = []
+        
+    def fit(self,dat):
+        
+        data = dat.copy()
+        data.loc[:,['OUTSIDE','BUILDINGID', 'SPACEID','RELATIVEPOSITION','USERID','PHONEID']] = \
+        data[['OUTSIDE','BUILDINGID', 'SPACEID','RELATIVEPOSITION','USERID','PHONEID']].astype(str)
+        
+        x_columns_all = [i for i in data.columns.values if 'WAP' in i]
+        data.loc[:,x_columns_all] = data.loc[:,x_columns_all].replace(100, np.nan)      
+
+        data = data.dropna(how='all', axis=1)
+        data = data.dropna(how='all', axis=0)
+        
+        self.pre_pca_columns = data.columns.values
+
+        self.x_columns = [i for i in data.columns.values if 'WAP' in i]
+        self.metadata_columns = [i for i in data.columns.values if 'WAP' not in i]
+        
+        data.loc[:,self.x_columns] = np.power(10,data[self.x_columns]/10)
+        data.loc[:,self.x_columns] = data.loc[:,self.x_columns].fillna(0)
+        self.scaler.fit(data[self.x_columns])
+        data.loc[:,self.x_columns] = self.scaler.transform(data[self.x_columns])        
+        self.pca.fit(data[self.x_columns])
+        pca_data = pd.DataFrame(self.pca.transform(data[self.x_columns]))
+        self.pca_columns = ['PCA_%s'%i for i in pca_data.columns.values]
+        components = pd.DataFrame(data=[self.pca.n_components_, self.pca.explained_variance_ratio_], columns=['explained_variance'])
+        components['cum_variance'] = components.explained_variance.cumsum()
+        display(components)
+        
+    def transform(self,dat, dev=False):
+        data = dat.copy()
+            
+        data[['OUTSIDE','BUILDINGID', 'SPACEID','RELATIVEPOSITION','USERID','PHONEID']] = \
+        data[['OUTSIDE','BUILDINGID', 'SPACEID','RELATIVEPOSITION','USERID','PHONEID']].astype(str)
+        data = data.loc[:,self.pre_pca_columns].copy()
+        data.loc[:,self.x_columns] = data.loc[:,self.x_columns].replace(100, np.nan)
+        data.loc[:,self.x_columns] = np.power(10,data[self.x_columns]/10)
+        data.loc[:,self.x_columns] = data.loc[:,self.x_columns].fillna(0)
+        data.loc[:,self.x_columns] = self.scaler.transform(data[self.x_columns]) 
+        pca_data = pd.DataFrame(self.pca.transform(data[self.x_columns]))
+        
+        self.pca_columns = ['PCA_%s'%i for i in pca_data.columns.values]
+        pca_data.columns=self.pca_columns
+        
+        if dev:
+            data['PARTITION'] = np.random.randint(0,3, size=len(data))
+        else:
+            pass
+        
+        
+        for i in pca_data.columns.values:
+            data.loc[:,i] = list(pca_data[i])
+        
+        return data
+
+class HiddenMarkovChainModel():
+    def _init_(self):
+        self.prep = DataPrep()
+        self.building_model = None
+        self.outside_models = {}
+        self.location_models = {}
+
+
+    def fit(self, data):
+        modeling_data = self.prep.fit(data)
+        modeling_data = self.prep.transform(data, dev=True)
+        building_training = modeling_data[modeling_data.PARTITION == 0].copy()
+        location_training = modeling_data[modeling_data.PARTITION == 1].copy()
+        test = modeling_data[modeling_data.PARTITION == 2].copy()
+        
+        self.building_model = rfc(n_estimators = 200)
+        
+        self.building_model.fit(building_training[self.prep.pca_columns], building_training['BUILDINGID'])
+        results = self.building_model.predict(test[self.prep.pca_columns])
+        plot_confusion_matrix(test['BUILDINGID'], results, normalize=True)
+      
+        
+        for i in modeling_data.BUILDINGID.unique():
+            outsidedata = building_training[building_training.BUILDINGID == i]
+            outsidetestdata = test[test.BUILDINGID == i]
+            
+            outside_model = rfc(n_estimators = 200)
+            
+            outside_model.fit(outsidedata[self.prep.pca_columns], outsidedata['OUTSIDE'])
+            results = outside_model.predict(outsidetestdata[self.prep.pca_columns])
+            print('Confusion Matrix for outside prediction, Building %s'%i)
+            plot_confusion_matrix(outsidetestdata['OUTSIDE'], results, normalize=True)
+            self.outside_models[str(i)] = outside_model
+
+        for i in modeling_data.BUILDINGID.unique():
+            locationdata = location_training[location_training.BUILDINGID == i]
+            locationtestdata = test[test.BUILDINGID == i]
+            
+            from sklearn.neighbors import KNeighborsRegressor as knr
+            location_model = knr(algorithm='auto', leaf_size=30,
+                  metric_params=None, n_jobs=-1, n_neighbors=3, p=2,
+                  weights='distance')
+            
+            location_model.fit(locationdata[self.prep.pca_columns], locationdata[['LONGITUDE', 'LATITUDE']])
+            results = pd.DataFrame(location_model.predict(locationtestdata[self.prep.pca_columns]), 
+                                columns=['LONGITUDE', 'LATITUDE'])
+            print('Buidlding %s lon RMSE: %s'%(i, sqrt(mean_squared_error(locationtestdata['LONGITUDE'], 
+                                                                          results['LONGITUDE']))))
+            print('Buidlding %s lat RMSE: %s'%(i, sqrt(mean_squared_error(locationtestdata['LATITUDE'], 
+                                                                          results['LATITUDE']))))
+            ax1 = locationtestdata.plot(kind='scatter', x='LONGITUDE', y='LATITUDE', color='r')    
+            ax2 = results.plot(kind='scatter', x='LONGITUDE', y='LATITUDE', color='g', ax=ax1, title='building # %s'%i)
+            
+            self.location_models[str(i)] = location_model
+        
+    def predict(self, data):
+        data = data.copy()
+        data = self.prep.transform(data)
+
+        building_prediction = self.building_model.predict(data[self.prep.pca_columns])
+        data.loc[:,'BUILDINGID_PRED'] = building_prediction
+        ids = data.BUILDINGID_PRED.unique()
+        
+        for bldg_id in data.BUILDINGID_PRED.unique():
+            bldg_data = data[data.BUILDINGID_PRED == bldg_id]
+            
+            data.loc[data.BUILDINGID_PRED == bldg_id,'OUTSIDE_PRED'] = self.outside_models[str(bldg_id)].predict(bldg_data[self.prep.pca_columns])
+            location = self.location_models[str(bldg_id)].predict(bldg_data[self.prep.pca_columns]) 
+            data.loc[data.BUILDINGID_PRED == bldg_id, 'LON_PRED'] = [i[0] for i in location]
+            data.loc[data.BUILDINGID_PRED == bldg_id, 'LAT_PRED'] = [i[1] for i in location]
+
+        return data
+from sklearn.model_selection import train_test_split
+data_original = pd.read_csv('trainingData.csv')
+train, test = train_test_split(data_original, test_size=0.15)
+
+model = HiddenMarkovChainModel()
+
+model.fit(train)
+output = model.predict(test)
+ax1 = output.plot(kind='scatter', x='LONGITUDE', y='LATITUDE', color='r')    
+ax2 = output.plot(kind='scatter', x='LON_PRED', y='LAT_PRED', color='g', ax=ax1)
+
+print('Longitude RMSE', sqrt(mean_squared_error(output['LONGITUDE'], output['LON_PRED'])))
+print('Latitude RMSE', sqrt(mean_squared_error(output['LATITUDE'], output['LAT_PRED'])))
+plot_confusion_matrix(output.BUILDINGID, output.BUILDINGID_PRED, normalize=True)
